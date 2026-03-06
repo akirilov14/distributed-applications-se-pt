@@ -1,0 +1,112 @@
+@rendermode InteractiveServer
+@inject AuthStateService AuthStateService
+@inject NavigationManager NavigationManager
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">🎬 CineBook</a>
+    </div>
+</div>
+
+<input type="checkbox" title="Навигационно меню" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Начало
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="filmi">
+                <span class="bi bi-film" aria-hidden="true"></span> Филми
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="zali">
+                <span class="bi bi-building" aria-hidden="true"></span> Зали
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="prozhekcii">
+                <span class="bi bi-camera-video" aria-hidden="true"></span> Прожекции
+            </NavLink>
+        </div>
+
+        @if (AuthStateService.IsAdmin)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="rezervacii">
+                    <span class="bi bi-ticket-perforated" aria-hidden="true"></span> Резервации
+                </NavLink>
+            </div>
+
+            <hr class="border-secondary my-1" />
+
+            <div class="px-3 py-1">
+                <small class="text-uppercase fw-semibold" style="color:#a0a0b0;letter-spacing:.08em;">Администрация</small>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/filmi">
+                    <span class="bi bi-pencil-square" aria-hidden="true"></span> Филми
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/zali">
+                    <span class="bi bi-gear" aria-hidden="true"></span> Зали
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="admin/prozhekcii">
+                    <span class="bi bi-calendar-event" aria-hidden="true"></span> Прожекции
+                </NavLink>
+            </div>
+        }
+
+        <hr class="border-secondary my-1" />
+
+        @if (AuthStateService.IsAuthenticated)
+        {
+            <div class="px-3 py-1">
+                <small class="text-light" style="opacity:.7;">@AuthStateService.FullName</small>
+            </div>
+            <div class="nav-item px-3">
+                <button class="nav-link btn btn-link text-danger p-0" style="text-decoration:none;" @onclick="Logout">
+                    <span class="bi bi-box-arrow-right" aria-hidden="true"></span> Изход
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="vход">
+                    <span class="bi bi-person" aria-hidden="true"></span> Вход
+                </NavLink>
+            </div>
+        }
+    </nav>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        AuthStateService.OnAuthStateChanged += StateHasChanged;
+    }
+
+    private void Logout()
+    {
+        AuthStateService.ClearUser();
+        NavigationManager.NavigateTo("/");
+    }
+
+    public void Dispose()
+    {
+        AuthStateService.OnAuthStateChanged -= StateHasChanged;
+    }
+}

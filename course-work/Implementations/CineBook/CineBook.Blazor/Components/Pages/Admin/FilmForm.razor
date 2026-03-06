@@ -1,0 +1,177 @@
+@page "/admin/filmi/nov"
+@page "/admin/filmi/edit/{Id:int}"
+@rendermode InteractiveServer
+@inject FilmApiClient FilmClient
+@inject AuthStateService AuthStateService
+@inject NavigationManager Navigation
+
+<PageTitle>@(isEditing ? "Редактиране" : "Добавяне") на филм – CineBook</PageTitle>
+
+<div class="container mt-4" style="max-width:700px;">
+    @if (!AuthStateService.IsAdmin)
+    {
+        <div class="alert alert-danger">Нямате достъп.</div>
+    }
+    else
+    {
+
+    <h2>@(isEditing ? "Редактиране на филм" : "Добавяне на филм")</h2>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+    }
+    else
+    {
+        <EditForm Model="formModel" OnValidSubmit="SaveFilm" FormName="filmForm">
+            <DataAnnotationsValidator />
+
+            <div class="mb-3">
+                <label class="form-label">Заглавие <span class="text-danger">*</span></label>
+                <InputText class="form-control" @bind-Value="formModel.Title" />
+                <ValidationMessage For="() => formModel.Title" class="text-danger" />
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Жанр <span class="text-danger">*</span></label>
+                    <InputText class="form-control" @bind-Value="formModel.Genre" />
+                    <ValidationMessage For="() => formModel.Genre" class="text-danger" />
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Режисьор <span class="text-danger">*</span></label>
+                    <InputText class="form-control" @bind-Value="formModel.Director" />
+                    <ValidationMessage For="() => formModel.Director" class="text-danger" />
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Година</label>
+                    <InputNumber class="form-control" @bind-Value="formModel.ReleaseYear" />
+                    <ValidationMessage For="() => formModel.ReleaseYear" class="text-danger" />
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Продължителност (мин.)</label>
+                    <InputNumber class="form-control" @bind-Value="formModel.DurationMinutes" />
+                    <ValidationMessage For="() => formModel.DurationMinutes" class="text-danger" />
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Оценка (0-10)</label>
+                    <InputNumber class="form-control" @bind-Value="formModel.Rating" />
+                    <ValidationMessage For="() => formModel.Rating" class="text-danger" />
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">URL на постер</label>
+                <InputText class="form-control" @bind-Value="formModel.PosterUrl" placeholder="https://..." />
+                <ValidationMessage For="() => formModel.PosterUrl" class="text-danger" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Описание <span class="text-danger">*</span></label>
+                <InputTextArea class="form-control" @bind-Value="formModel.Description" rows="5" />
+                <ValidationMessage For="() => formModel.Description" class="text-danger" />
+            </div>
+
+            @if (isEditing)
+            {
+                <div class="mb-3 form-check">
+                    <InputCheckbox class="form-check-input" @bind-Value="updateModel.IsActive" id="isActive" />
+                    <label class="form-check-label" for="isActive">Активен</label>
+                </div>
+            }
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                    @if (isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    Запази
+                </button>
+                <a href="filmi" class="btn btn-outline-secondary">Отказ</a>
+            </div>
+        </EditForm>
+    }
+    } @* end else IsAdmin *@
+</div>
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    private CreateFilmRequest formModel = new();
+    private UpdateFilmRequest updateModel = new();
+    private bool isEditing => Id.HasValue;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AuthStateService.IsAdmin)
+        {
+            isLoading = false;
+            return;
+        }
+
+        if (isEditing)
+        {
+            var film = await FilmClient.GetByIdAsync(Id!.Value);
+            if (film is not null)
+            {
+                formModel.Title = film.Title;
+                formModel.Description = film.Description;
+                formModel.DurationMinutes = film.DurationMinutes;
+                formModel.Genre = film.Genre;
+                formModel.Director = film.Director;
+                formModel.ReleaseYear = film.ReleaseYear;
+                formModel.PosterUrl = film.PosterUrl;
+                formModel.Rating = film.Rating;
+                updateModel.IsActive = film.IsActive;
+            }
+        }
+        else
+        {
+            formModel.ReleaseYear = DateTime.Now.Year;
+        }
+
+        isLoading = false;
+    }
+
+    private async Task SaveFilm()
+    {
+        isSaving = true;
+        errorMessage = null;
+
+        if (isEditing)
+        {
+            var request = new UpdateFilmRequest
+            {
+                Title = formModel.Title,
+                Description = formModel.Description,
+                DurationMinutes = formModel.DurationMinutes,
+                Genre = formModel.Genre,
+                Director = formModel.Director,
+                ReleaseYear = formModel.ReleaseYear,
+                PosterUrl = formModel.PosterUrl,
+                Rating = formModel.Rating,
+                IsActive = updateModel.IsActive
+            };
+            var result = await FilmClient.UpdateAsync(Id!.Value, request);
+            if (result is null) errorMessage = "Грешка при запазване. Опитайте отново.";
+            else Navigation.NavigateTo("filmi");
+        }
+        else
+        {
+            var result = await FilmClient.CreateAsync(formModel);
+            if (result is null) errorMessage = "Грешка при запазване. Опитайте отново.";
+            else Navigation.NavigateTo("filmi");
+        }
+
+        isSaving = false;
+    }
+}

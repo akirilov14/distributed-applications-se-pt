@@ -1,0 +1,79 @@
+@page "/vход"
+@rendermode InteractiveServer
+@inject AuthApiClient AuthClient
+@inject AuthStateService AuthStateService
+@inject CineBookAuthStateProvider AuthProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Вход – CineBook</PageTitle>
+
+<div class="container mt-5" style="max-width:420px;">
+    <div class="card shadow">
+        <div class="card-body p-4">
+            <h2 class="card-title text-center mb-4">🔐 Вход</h2>
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger">@errorMessage</div>
+            }
+
+            <EditForm Model="loginRequest" OnValidSubmit="SubmitLogin" FormName="loginForm">
+                <DataAnnotationsValidator />
+
+                <div class="mb-3">
+                    <label class="form-label">Имейл</label>
+                    <InputText type="email" class="form-control" @bind-Value="loginRequest.Email"
+                               placeholder="admin@cinebook.bg" />
+                    <ValidationMessage For="() => loginRequest.Email" class="text-danger" />
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">Парола</label>
+                    <InputText type="password" class="form-control" @bind-Value="loginRequest.Password" />
+                    <ValidationMessage For="() => loginRequest.Password" class="text-danger" />
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    Влез
+                </button>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    private LoginRequest loginRequest = new();
+    private string? errorMessage;
+    private bool isLoading;
+
+    protected override void OnInitialized()
+    {
+        if (AuthStateService.IsAuthenticated)
+            Navigation.NavigateTo("/");
+    }
+
+    private async Task SubmitLogin()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        var response = await AuthClient.LoginAsync(loginRequest);
+
+        if (response is not null)
+        {
+            AuthStateService.SetUser(response.Token, response.Email, response.Role, response.FullName);
+            AuthProvider.NotifyStateChanged();
+            Navigation.NavigateTo("/");
+        }
+        else
+        {
+            errorMessage = "Невалиден имейл или парола.";
+        }
+
+        isLoading = false;
+    }
+}

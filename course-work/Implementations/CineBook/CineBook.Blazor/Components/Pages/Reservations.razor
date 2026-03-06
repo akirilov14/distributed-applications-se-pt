@@ -1,0 +1,174 @@
+@page "/rezervacii"
+@rendermode InteractiveServer
+@inject ReservationApiClient ReservationClient
+@inject AuthStateService AuthStateService
+@inject NavigationManager Navigation
+
+<PageTitle>Резервации – CineBook</PageTitle>
+
+<div class="container mt-4">
+    @if (!AuthStateService.IsAdmin)
+    {
+        <div class="alert alert-warning">Нямате достъп до тази страница.</div>
+    }
+    else
+    {
+
+    <h2>Резервации</h2>
+
+    <div class="input-group mb-4">
+        <input type="text" class="form-control" placeholder="Търси по имейл..."
+               @bind="searchEmail" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+        <button class="btn btn-outline-secondary" @onclick="SearchReservations">Търси</button>
+        @if (!string.IsNullOrWhiteSpace(searchEmail))
+        {
+            <button class="btn btn-outline-danger" @onclick="ClearSearch">X</button>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (pagedResult is null || pagedResult.TotalCount == 0)
+    {
+        <div class="alert alert-info">Няма намерени резултати.</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Код</th>
+                        <th>Клиент</th>
+                        <th>Имейл</th>
+                        <th>Филм</th>
+                        <th>Дата на прожекцията</th>
+                        <th>Места</th>
+                        <th>Сума</th>
+                        <th>Статус</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var reservation in pagedResult.Items)
+                    {
+                        <tr>
+                            <td><code>@reservation.ReservationCode</code></td>
+                            <td>@reservation.CustomerName</td>
+                            <td>@reservation.CustomerEmail</td>
+                            <td>@reservation.FilmTitle</td>
+                            <td>@reservation.ScreeningStartTime.ToString("dd.MM.yyyy HH:mm")</td>
+                            <td>@reservation.Seats.Count</td>
+                            <td>@reservation.TotalPrice.ToString("0.00") лв.</td>
+                            <td>
+                                <span class="badge @(reservation.Status == "Active" ? "bg-success" : "bg-secondary")">
+                                    @(reservation.Status == "Active" ? "Активна" : "Отказана")
+                                </span>
+                            </td>
+                            <td>
+                                @if (reservation.Status == "Active")
+                                {
+                                    <button class="btn btn-danger btn-sm" @onclick="() => ConfirmCancel(reservation)">Откажи</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <nav class="mt-4">
+            <ul class="pagination justify-content-center">
+                <li class="page-item @(pagedResult.HasPreviousPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => LoadPage(currentPage - 1)">Предишна</button>
+                </li>
+                @for (int pageIndex = 1; pageIndex <= pagedResult.TotalPages; pageIndex++)
+                {
+                    var pageNum = pageIndex;
+                    <li class="page-item @(pageNum == currentPage ? "active" : "")">
+                        <button class="page-link" @onclick="() => LoadPage(pageNum)">@pageNum</button>
+                    </li>
+                }
+                <li class="page-item @(pagedResult.HasNextPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => LoadPage(currentPage + 1)">Следваща</button>
+                </li>
+            </ul>
+        </nav>
+        <p class="text-center text-muted">Общо @pagedResult.TotalCount резервации</p>
+    }
+    } @* end else IsAdmin *@
+</div>
+
+@if (reservationToCancel is not null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Потвърди отказване</h5></div>
+                <div class="modal-body">
+                    Сигурни ли сте, че искате да откажете резервация <strong>@reservationToCancel.ReservationCode</strong> на @reservationToCancel.CustomerName?
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CancelAction">Отказ</button>
+                    <button class="btn btn-danger" @onclick="CancelReservation">Откажи резервацията</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private PagedResult<ReservationResponse>? pagedResult;
+    private bool isLoading = true;
+    private string searchEmail = string.Empty;
+    private int currentPage = 1;
+    private const int PageSize = 20;
+    private ReservationResponse? reservationToCancel;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AuthStateService.IsAdmin) return;
+        await LoadPage(1);
+    }
+
+    private async Task LoadPage(int pageNumber)
+    {
+        isLoading = true;
+        currentPage = pageNumber;
+
+        pagedResult = string.IsNullOrWhiteSpace(searchEmail)
+            ? await ReservationClient.GetAllAsync(currentPage, PageSize)
+            : await ReservationClient.SearchByEmailAsync(searchEmail, currentPage, PageSize);
+
+        isLoading = false;
+    }
+
+    private async Task SearchReservations() => await LoadPage(1);
+
+    private async Task ClearSearch()
+    {
+        searchEmail = string.Empty;
+        await LoadPage(1);
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await SearchReservations();
+    }
+
+    private void ConfirmCancel(ReservationResponse reservation) => reservationToCancel = reservation;
+
+    private void CancelAction() => reservationToCancel = null;
+
+    private async Task CancelReservation()
+    {
+        if (reservationToCancel is null) return;
+        await ReservationClient.CancelAsync(reservationToCancel.Id);
+        reservationToCancel = null;
+        await LoadPage(currentPage);
+    }
+}

@@ -1,0 +1,101 @@
+@page "/filmi/{Id:int}"
+@rendermode InteractiveServer
+@inject FilmApiClient FilmClient
+@inject ScreeningApiClient ScreeningClient
+
+<PageTitle>@(film?.Title ?? "Филм") – CineBook</PageTitle>
+
+<div class="container mt-4">
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (film is null)
+    {
+        <div class="alert alert-warning">Филмът не е намерен.</div>
+    }
+    else
+    {
+        <div class="row">
+            <div class="col-md-4">
+                @if (!string.IsNullOrEmpty(film.PosterUrl))
+                {
+                    <img src="@film.PosterUrl" class="img-fluid rounded shadow" alt="@film.Title" />
+                }
+                else
+                {
+                    <div class="bg-secondary rounded d-flex align-items-center justify-content-center" style="height:350px;">
+                        <span class="text-white fs-1">🎬</span>
+                    </div>
+                }
+            </div>
+            <div class="col-md-8">
+                <h1>@film.Title</h1>
+                <div class="mb-3">
+                    <span class="badge bg-primary me-2">@film.Genre</span>
+                    <span class="badge bg-secondary me-2">@film.ReleaseYear г.</span>
+                    <span class="badge bg-warning text-dark">⭐ @film.Rating.ToString("0.0")</span>
+                </div>
+                <p><strong>Режисьор:</strong> @film.Director</p>
+                <p><strong>Продължителност:</strong> @film.DurationMinutes минути</p>
+                <hr />
+                <p>@film.Description</p>
+            </div>
+        </div>
+
+        <h3 class="mt-5">Предстоящи прожекции</h3>
+        @if (screenings is null || screenings.TotalCount == 0)
+        {
+            <div class="alert alert-info">Няма предстоящи прожекции за този филм.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Дата и час</th>
+                            <th>Зала</th>
+                            <th>Езикова версия</th>
+                            <th>3D</th>
+                            <th>Цена от</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var screening in screenings.Items)
+                        {
+                            <tr>
+                                <td>@screening.StartTime.ToString("dd.MM.yyyy HH:mm")</td>
+                                <td>@screening.AuditoriumName</td>
+                                <td>@screening.Language @(screening.Subtitles is not null ? $"/ {screening.Subtitles}" : "")</td>
+                                <td>@(screening.Is3D ? "Да" : "Не")</td>
+                                <td>@screening.BasePrice.ToString("0.00") лв.</td>
+                                <td>
+                                    <a href="prozhekcii/@screening.Id/rezervirane" class="btn btn-success btn-sm">Резервирай</a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private FilmResponse? film;
+    private PagedResult<ScreeningResponse>? screenings;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        film = await FilmClient.GetByIdAsync(Id);
+        screenings = await ScreeningClient.SearchAsync(filmId: Id, startDate: DateTime.UtcNow, endDate: null);
+        isLoading = false;
+    }
+}

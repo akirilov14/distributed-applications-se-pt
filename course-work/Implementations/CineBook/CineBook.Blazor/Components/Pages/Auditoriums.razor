@@ -1,0 +1,163 @@
+@page "/zali"
+@rendermode InteractiveServer
+@inject AuditoriumApiClient AuditoriumClient
+@inject AuthStateService AuthStateService
+
+<PageTitle>Зали – CineBook</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Кинозали</h2>
+        @if (AuthStateService.IsAdmin)
+        {
+            <a href="admin/zali/nova" class="btn btn-success">+ Добави зала</a>
+        }
+    </div>
+
+    <div class="input-group mb-4">
+        <input type="text" class="form-control" placeholder="Търси по име..."
+               @bind="searchName" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+        <button class="btn btn-outline-secondary" @onclick="SearchAuditoriums">Търси</button>
+        @if (!string.IsNullOrWhiteSpace(searchName))
+        {
+            <button class="btn btn-outline-danger" @onclick="ClearSearch">X</button>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (pagedResult is null || pagedResult.TotalCount == 0)
+    {
+        <div class="alert alert-info">Няма намерени резултати.</div>
+    }
+    else
+    {
+        <div class="row">
+            @foreach (var auditorium in pagedResult.Items)
+            {
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100 shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title">@auditorium.Name</h5>
+                            <ul class="list-unstyled">
+                                <li><strong>Капацитет:</strong> @auditorium.Capacity места</li>
+                                <li><strong>Етаж:</strong> @auditorium.FloorNumber</li>
+                                <li>
+                                    @if (auditorium.Has3DProjector)
+                                    {
+                                        <span class="badge bg-info me-1">3D</span>
+                                    }
+                                    @if (auditorium.HasDolbySound)
+                                    {
+                                        <span class="badge bg-secondary">Dolby</span>
+                                    }
+                                </li>
+                            </ul>
+                            @if (!string.IsNullOrEmpty(auditorium.Description))
+                            {
+                                <p class="card-text text-muted small">@auditorium.Description</p>
+                            }
+                        </div>
+                        @if (AuthStateService.IsAdmin)
+                        {
+                            <div class="card-footer d-flex gap-2">
+                                <a href="admin/zali/edit/@auditorium.Id" class="btn btn-outline-secondary btn-sm">Редактирай</a>
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDelete(auditorium)">Изтрий</button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <nav class="mt-4">
+            <ul class="pagination justify-content-center">
+                <li class="page-item @(pagedResult.HasPreviousPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => LoadPage(currentPage - 1)">Предишна</button>
+                </li>
+                @for (int pageIndex = 1; pageIndex <= pagedResult.TotalPages; pageIndex++)
+                {
+                    var pageNum = pageIndex;
+                    <li class="page-item @(pageNum == currentPage ? "active" : "")">
+                        <button class="page-link" @onclick="() => LoadPage(pageNum)">@pageNum</button>
+                    </li>
+                }
+                <li class="page-item @(pagedResult.HasNextPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => LoadPage(currentPage + 1)">Следваща</button>
+                </li>
+            </ul>
+        </nav>
+    }
+</div>
+
+@if (auditoriumToDelete is not null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Потвърди изтриване</h5>
+                </div>
+                <div class="modal-body">
+                    Сигурни ли сте, че искате да изтриете зала „@auditoriumToDelete.Name"?
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CancelDelete">Отказ</button>
+                    <button class="btn btn-danger" @onclick="DeleteAuditorium">Изтрий</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private PagedResult<AuditoriumResponse>? pagedResult;
+    private bool isLoading = true;
+    private string searchName = string.Empty;
+    private int currentPage = 1;
+    private const int PageSize = 9;
+    private AuditoriumResponse? auditoriumToDelete;
+
+    protected override async Task OnInitializedAsync() => await LoadPage(1);
+
+    private async Task LoadPage(int pageNumber)
+    {
+        isLoading = true;
+        currentPage = pageNumber;
+
+        pagedResult = string.IsNullOrWhiteSpace(searchName)
+            ? await AuditoriumClient.GetAllAsync(currentPage, PageSize)
+            : await AuditoriumClient.SearchAsync(searchName, currentPage, PageSize);
+
+        isLoading = false;
+    }
+
+    private async Task SearchAuditoriums() => await LoadPage(1);
+
+    private async Task ClearSearch()
+    {
+        searchName = string.Empty;
+        await LoadPage(1);
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") await SearchAuditoriums();
+    }
+
+    private void ConfirmDelete(AuditoriumResponse auditorium) => auditoriumToDelete = auditorium;
+
+    private void CancelDelete() => auditoriumToDelete = null;
+
+    private async Task DeleteAuditorium()
+    {
+        if (auditoriumToDelete is null) return;
+        await AuditoriumClient.DeleteAsync(auditoriumToDelete.Id);
+        auditoriumToDelete = null;
+        await LoadPage(currentPage);
+    }
+}

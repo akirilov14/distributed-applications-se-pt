@@ -1,0 +1,250 @@
+@page "/admin/zali"
+@rendermode InteractiveServer
+@inject AuditoriumApiClient AuditoriumClient
+@inject SeatApiClient SeatClient
+@inject AuthStateService AuthStateService
+
+<PageTitle>Управление на зали – CineBook</PageTitle>
+
+<div class="container mt-4">
+    @if (!AuthStateService.IsAdmin)
+    {
+        <div class="alert alert-danger">Нямате достъп.</div>
+    }
+    else
+    {
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Управление на зали</h2>
+        <a href="admin/zali/nova" class="btn btn-success">+ Добави зала</a>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+    }
+    else if (pagedResult is null || pagedResult.TotalCount == 0)
+    {
+        <div class="alert alert-info">Няма зали.</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>ID</th>
+                        <th>Наименование</th>
+                        <th>Капацитет</th>
+                        <th>Етаж</th>
+                        <th>Опции</th>
+                        <th>Активна</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var auditorium in pagedResult.Items)
+                    {
+                        <tr>
+                            <td>@auditorium.Id</td>
+                            <td>@auditorium.Name</td>
+                            <td>@auditorium.Capacity</td>
+                            <td>@auditorium.FloorNumber</td>
+                            <td>
+                                @if (auditorium.Has3DProjector) { <span class="badge bg-info me-1">3D</span> }
+                                @if (auditorium.HasDolbySound) { <span class="badge bg-secondary">Dolby</span> }
+                            </td>
+                            <td>
+                                <span class="badge @(auditorium.IsActive ? "bg-success" : "bg-secondary")">
+                                    @(auditorium.IsActive ? "Да" : "Не")
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex gap-1 flex-wrap">
+                                    <a href="admin/zali/edit/@auditorium.Id" class="btn btn-outline-primary btn-sm">Редактирай</a>
+                                    <button class="btn btn-outline-info btn-sm" @onclick="() => ManageSeats(auditorium)">Места</button>
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDelete(auditorium)">Изтрий</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    } @* end else IsAdmin *@
+</div>
+
+@if (selectedAuditorium is not null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Управление на места – @selectedAuditorium.Name</h5>
+                    <button class="btn-close" @onclick="CloseSeatsModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (seatsLoading)
+                    {
+                        <div class="text-center"><div class="spinner-border text-primary"></div></div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <h6>Добавяне на нови места</h6>
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-2">
+                                    <label class="form-label small">Ред</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="newSeat.RowNumber" min="1" max="100" />
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small">Място №</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="newSeat.SeatNumber" min="1" max="200" />
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small">Тип</label>
+                                    <select class="form-select form-select-sm" @bind="newSeat.SeatType">
+                                        <option value="Standard">Standard</option>
+                                        <option value="VIP">VIP</option>
+                                        <option value="Disabled">Disabled</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small">Множител</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="newSeat.PriceMultiplier" min="0.5" max="5" step="0.1" />
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-success btn-sm w-100" @onclick="AddSeat">Добави</button>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(seatError))
+                            {
+                                <div class="alert alert-danger mt-2 py-1 small">@seatError</div>
+                            }
+                        </div>
+
+                        @if (seats.Count > 0)
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead><tr><th>Ред</th><th>Място</th><th>Тип</th><th>Множител</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var seat in seats.OrderBy(s => s.RowNumber).ThenBy(s => s.SeatNumber))
+                                        {
+                                            <tr>
+                                                <td>@seat.RowNumber</td>
+                                                <td>@seat.SeatNumber</td>
+                                                <td>@seat.SeatType</td>
+                                                <td>x@seat.PriceMultiplier</td>
+                                                <td>
+                                                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteSeat(seat.Id)">Изтрий</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">Няма добавени места.</p>
+                        }
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CloseSeatsModal">Затвори</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (auditoriumToDelete is not null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Потвърди изтриване</h5></div>
+                <div class="modal-body">Изтриване на „@auditoriumToDelete.Name"?</div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => auditoriumToDelete = null">Отказ</button>
+                    <button class="btn btn-danger" @onclick="DeleteAuditorium">Изтрий</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private PagedResult<AuditoriumResponse>? pagedResult;
+    private bool isLoading = true;
+
+    private AuditoriumResponse? selectedAuditorium;
+    private AuditoriumResponse? auditoriumToDelete;
+    private List<SeatResponse> seats = [];
+    private bool seatsLoading = false;
+    private CreateSeatRequest newSeat = new() { SeatType = "Standard", PriceMultiplier = 1.0m };
+    private string? seatError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AuthStateService.IsAdmin) return;
+        isLoading = true;
+        pagedResult = await AuditoriumClient.GetAllAsync(1, 50);
+        isLoading = false;
+    }
+
+    private async Task ManageSeats(AuditoriumResponse auditorium)
+    {
+        selectedAuditorium = auditorium;
+        newSeat = new CreateSeatRequest { AuditoriumId = auditorium.Id, SeatType = "Standard", PriceMultiplier = 1.0m, RowNumber = 1, SeatNumber = 1 };
+        seatError = null;
+        await LoadSeats();
+    }
+
+    private async Task LoadSeats()
+    {
+        seatsLoading = true;
+        var result = await SeatClient.GetByAuditoriumAsync(selectedAuditorium!.Id);
+        seats = result?.Items.ToList() ?? [];
+        seatsLoading = false;
+    }
+
+    private async Task AddSeat()
+    {
+        seatError = null;
+        var result = await SeatClient.CreateAsync(newSeat);
+        if (result is null)
+        {
+            seatError = "Грешка при добавяне. Вероятно такова място вече съществува.";
+        }
+        else
+        {
+            newSeat.SeatNumber++;
+            await LoadSeats();
+        }
+    }
+
+    private async Task DeleteSeat(int id)
+    {
+        await SeatClient.DeleteAsync(id);
+        await LoadSeats();
+    }
+
+    private void CloseSeatsModal()
+    {
+        selectedAuditorium = null;
+        seats = [];
+    }
+
+    private void ConfirmDelete(AuditoriumResponse a) => auditoriumToDelete = a;
+
+    private async Task DeleteAuditorium()
+    {
+        if (auditoriumToDelete is null) return;
+        await AuditoriumClient.DeleteAsync(auditoriumToDelete.Id);
+        auditoriumToDelete = null;
+        pagedResult = await AuditoriumClient.GetAllAsync(1, 50);
+    }
+}

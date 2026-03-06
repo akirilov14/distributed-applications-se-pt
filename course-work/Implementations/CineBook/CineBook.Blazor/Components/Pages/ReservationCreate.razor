@@ -1,0 +1,351 @@
+@page "/prozhekcii/{ScreeningId:int}/rezervirane"
+@rendermode InteractiveServer
+@inject ScreeningApiClient ScreeningClient
+@inject SeatApiClient SeatClient
+@inject ReservationApiClient ReservationClient
+@inject NavigationManager Navigation
+
+<PageTitle>Резервация – CineBook</PageTitle>
+
+<style>
+    .cinema-screen {
+        background: linear-gradient(to bottom, #aaa, #ddd);
+        height: 10px;
+        border-radius: 50% 50% 0 0 / 6px 6px 0 0;
+        margin: 0 40px 6px;
+        box-shadow: 0 4px 18px rgba(255,255,255,0.25);
+    }
+    .cinema-screen-label {
+        text-align: center;
+        font-size: 0.7rem;
+        letter-spacing: 0.2em;
+        color: #888;
+        margin-bottom: 24px;
+    }
+    .seat-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 6px 6px 4px 4px;
+        border: none;
+        cursor: pointer;
+        font-size: 0.65rem;
+        font-weight: 600;
+        transition: transform 0.1s, box-shadow 0.1s;
+        position: relative;
+    }
+    .seat-btn:not(:disabled):hover {
+        transform: scale(1.15);
+        z-index: 2;
+    }
+    .seat-available-standard {
+        background: #e2e8f0;
+        color: #475569;
+    }
+    .seat-available-vip {
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fbbf24;
+    }
+    .seat-available-disabled {
+        background: #dbeafe;
+        color: #1e40af;
+        border: 1px solid #93c5fd;
+    }
+    .seat-selected {
+        background: #22c55e;
+        color: #fff;
+        box-shadow: 0 0 0 2px #16a34a;
+    }
+    .seat-taken {
+        background: #374151;
+        color: #6b7280;
+        cursor: not-allowed;
+    }
+    .seat-row-label {
+        width: 28px;
+        font-size: 0.7rem;
+        color: #9ca3af;
+        text-align: right;
+        padding-right: 6px;
+        line-height: 36px;
+        flex-shrink: 0;
+    }
+    .seat-grid-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-bottom: 5px;
+        justify-content: center;
+    }
+    .seat-aisle {
+        width: 16px;
+        flex-shrink: 0;
+    }
+    .legend-dot {
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        display: inline-block;
+        flex-shrink: 0;
+    }
+</style>
+
+<div class="container mt-4" style="max-width:820px;">
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (screening is null)
+    {
+        <div class="alert alert-warning">Прожекцията не е намерена.</div>
+    }
+    else if (confirmationCode is not null)
+    {
+        <div class="card border-success shadow-sm">
+            <div class="card-body text-center py-5">
+                <div style="font-size:3rem;">🎬</div>
+                <h3 class="mt-3 text-success">Резервацията е успешна!</h3>
+                <p class="text-muted mb-3">Запазете кода – ще ви е необходим при влизане в киното.</p>
+                <div class="d-inline-block bg-light border rounded px-4 py-2 mb-4">
+                    <span class="text-muted small">Код на резервацията</span><br />
+                    <strong style="font-size:1.6rem;letter-spacing:0.15em;">@confirmationCode</strong>
+                </div>
+                <br />
+                <a href="/" class="btn btn-primary">Към началото</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="row g-4">
+            <!-- Left: seat map -->
+            <div class="col-lg-8">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title mb-1">@screening.FilmTitle</h5>
+                        <p class="text-muted small mb-3">
+                            @screening.StartTime.ToString("dd.MM.yyyy HH:mm") &nbsp;·&nbsp; @screening.AuditoriumName
+                            @if (screening.Is3D) { <span class="badge bg-primary ms-1">3D</span> }
+                        </p>
+
+                        @if (!string.IsNullOrEmpty(errorMessage))
+                        {
+                            <div class="alert alert-danger py-2">@errorMessage</div>
+                        }
+
+                        @if (seats.Count == 0)
+                        {
+                            <div class="alert alert-info">Няма налични места.</div>
+                        }
+                        else
+                        {
+                            <!-- Screen -->
+                            <div class="cinema-screen"></div>
+                            <div class="cinema-screen-label">ЕКРАН</div>
+
+                            <!-- Seat grid -->
+                            @foreach (var row in seatsByRow)
+                            {
+                                <div class="seat-grid-row">
+                                    <span class="seat-row-label">@row.Key</span>
+                                    @{
+                                        int mid = row.Value.Count / 2;
+                                        for (int i = 0; i < row.Value.Count; i++)
+                                        {
+                                            if (i == mid) { <span class="seat-aisle"></span> }
+                                            var seat = row.Value[i];
+                                            var isTaken = takenSeatIds.Contains(seat.Id);
+                                            var isSelected = selectedSeatIds.Contains(seat.Id);
+                                            var cssClass = isTaken ? "seat-taken"
+                                                : isSelected ? "seat-selected"
+                                                : seat.SeatType == "VIP" ? "seat-available-vip"
+                                                : seat.SeatType == "Disabled" ? "seat-available-disabled"
+                                                : "seat-available-standard";
+                                            var price = (screening.BasePrice * seat.PriceMultiplier).ToString("0.00");
+                                            var title = isTaken ? "Заето" : $"{seat.SeatType} · {price} лв.";
+                                            <button class="seat-btn @cssClass"
+                                                    disabled="@isTaken"
+                                                    title="@title"
+                                                    @onclick="() => ToggleSeat(seat.Id)">
+                                                @seat.SeatNumber
+                                            </button>
+                                        }
+                                    }
+                                </div>
+                            }
+
+                            <!-- Legend -->
+                            <div class="d-flex flex-wrap gap-3 justify-content-center mt-4 small text-muted">
+                                <span class="d-flex align-items-center gap-1">
+                                    <span class="legend-dot" style="background:#e2e8f0;border:1px solid #cbd5e1"></span> Стандартно
+                                </span>
+                                <span class="d-flex align-items-center gap-1">
+                                    <span class="legend-dot" style="background:#fef3c7;border:1px solid #fbbf24"></span> VIP
+                                </span>
+                                <span class="d-flex align-items-center gap-1">
+                                    <span class="legend-dot" style="background:#dbeafe;border:1px solid #93c5fd"></span> За хора с увреждания
+                                </span>
+                                <span class="d-flex align-items-center gap-1">
+                                    <span class="legend-dot" style="background:#22c55e"></span> Избрано
+                                </span>
+                                <span class="d-flex align-items-center gap-1">
+                                    <span class="legend-dot" style="background:#374151"></span> Заето
+                                </span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: summary + form -->
+            <div class="col-lg-4">
+                <!-- Selection summary -->
+                <div class="card shadow-sm mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">Избрани места</h6>
+                        @if (selectedSeatIds.Count == 0)
+                        {
+                            <p class="text-muted small mb-0">Кликнете върху свободно място от картата.</p>
+                        }
+                        else
+                        {
+                            <ul class="list-unstyled mb-2 small">
+                                @foreach (var seat in seats.Where(s => selectedSeatIds.Contains(s.Id)).OrderBy(s => s.RowNumber).ThenBy(s => s.SeatNumber))
+                                {
+                                    <li class="d-flex justify-content-between">
+                                        <span>Ред @seat.RowNumber, Място @seat.SeatNumber <span class="text-muted">(@seat.SeatType)</span></span>
+                                        <span>@((screening.BasePrice * seat.PriceMultiplier).ToString("0.00")) лв.</span>
+                                    </li>
+                                }
+                            </ul>
+                            <hr class="my-1" />
+                            <div class="d-flex justify-content-between fw-bold">
+                                <span>Общо</span>
+                                <span>@CalculateTotal().ToString("0.00") лв.</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Customer form -->
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h6 class="card-title">Вашите данни</h6>
+                        <EditForm Model="request" OnValidSubmit="SubmitReservation" FormName="reservationForm">
+                            <DataAnnotationsValidator />
+
+                            <div class="mb-2">
+                                <label class="form-label form-label-sm">Имена <span class="text-danger">*</span></label>
+                                <InputText class="form-control form-control-sm" @bind-Value="request.CustomerName" placeholder="Иван Иванов" />
+                                <ValidationMessage For="() => request.CustomerName" class="text-danger small" />
+                            </div>
+
+                            <div class="mb-2">
+                                <label class="form-label form-label-sm">Имейл <span class="text-danger">*</span></label>
+                                <InputText type="email" class="form-control form-control-sm" @bind-Value="request.CustomerEmail" placeholder="email@example.com" />
+                                <ValidationMessage For="() => request.CustomerEmail" class="text-danger small" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label form-label-sm">Бележки (по желание)</label>
+                                <InputTextArea class="form-control form-control-sm" @bind-Value="request.Notes" rows="2" />
+                            </div>
+
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-success" disabled="@(selectedSeatIds.Count == 0 || isSaving)">
+                                    @if (isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                                    Запази резервация
+                                </button>
+                                <a href="/prozhekcii" class="btn btn-outline-secondary btn-sm">Отказ</a>
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int ScreeningId { get; set; }
+
+    private ScreeningResponse? screening;
+    private List<SeatResponse> seats = [];
+    private HashSet<int> takenSeatIds = [];
+    private HashSet<int> selectedSeatIds = [];
+    private SortedDictionary<int, List<SeatResponse>> seatsByRow = [];
+    private CreateReservationRequest request = new();
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string? errorMessage;
+    private string? confirmationCode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        screening = await ScreeningClient.GetByIdAsync(ScreeningId);
+        if (screening is not null)
+        {
+            var seatsResult = await SeatClient.GetByAuditoriumAsync(screening.AuditoriumId);
+            seats = seatsResult?.Items.Where(s => s.IsActive).ToList() ?? [];
+
+            seatsByRow = new SortedDictionary<int, List<SeatResponse>>();
+            foreach (var seat in seats.OrderBy(s => s.SeatNumber))
+            {
+                if (!seatsByRow.TryGetValue(seat.RowNumber, out var rowList))
+                {
+                    rowList = [];
+                    seatsByRow[seat.RowNumber] = rowList;
+                }
+                rowList.Add(seat);
+            }
+
+            var reserved = await ScreeningClient.GetReservedSeatIdsAsync(ScreeningId);
+            takenSeatIds = reserved is not null ? [.. reserved] : [];
+        }
+
+        request.ScreeningId = ScreeningId;
+        isLoading = false;
+    }
+
+    private void ToggleSeat(int seatId)
+    {
+        if (takenSeatIds.Contains(seatId)) return;
+        if (!selectedSeatIds.Remove(seatId))
+            selectedSeatIds.Add(seatId);
+        request.SeatIds = selectedSeatIds.ToList();
+    }
+
+    private decimal CalculateTotal()
+    {
+        return seats
+            .Where(s => selectedSeatIds.Contains(s.Id))
+            .Sum(s => (screening?.BasePrice ?? 0) * s.PriceMultiplier);
+    }
+
+    private async Task SubmitReservation()
+    {
+        if (selectedSeatIds.Count == 0)
+        {
+            errorMessage = "Моля, изберете поне едно място.";
+            return;
+        }
+
+        isSaving = true;
+        errorMessage = null;
+
+        var (result, error) = await ReservationClient.CreateAsync(request);
+
+        if (result is not null)
+        {
+            confirmationCode = result.ReservationCode;
+        }
+        else
+        {
+            errorMessage = error ?? "Възникна грешка при резервацията. Опитайте отново.";
+        }
+
+        isSaving = false;
+    }
+}

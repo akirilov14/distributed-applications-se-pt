@@ -1,0 +1,176 @@
+@page "/filmi"
+@rendermode InteractiveServer
+@inject FilmApiClient FilmClient
+@inject AuthStateService AuthStateService
+@inject NavigationManager Navigation
+
+<PageTitle>Филми – CineBook</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Филми</h2>
+        @if (AuthStateService.IsAdmin)
+        {
+            <a href="admin/filmi/nov" class="btn btn-success">+ Добави филм</a>
+        }
+    </div>
+
+    <div class="input-group mb-4">
+        <input type="text" class="form-control" placeholder="Търси по заглавие..."
+               @bind="searchTitle" @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
+        <button class="btn btn-outline-secondary" @onclick="SearchFilms">Търси</button>
+        @if (!string.IsNullOrWhiteSpace(searchTitle))
+        {
+            <button class="btn btn-outline-danger" @onclick="ClearSearch">X</button>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Зареждане...</span>
+            </div>
+            <p class="mt-2">Зареждане...</p>
+        </div>
+    }
+    else if (pagedResult is null || pagedResult.TotalCount == 0)
+    {
+        <div class="alert alert-info">Няма намерени резултати.</div>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-md-3 g-4">
+            @foreach (var film in pagedResult.Items)
+            {
+                <div class="col">
+                    <div class="card h-100 shadow-sm">
+                        @if (!string.IsNullOrEmpty(film.PosterUrl))
+                        {
+                            <img src="@film.PosterUrl" class="card-img-top" alt="@film.Title" style="height:280px;object-fit:cover;" />
+                        }
+                        else
+                        {
+                            <div class="bg-secondary d-flex align-items-center justify-content-center" style="height:180px;">
+                                <span class="text-white fs-1">🎬</span>
+                            </div>
+                        }
+                        <div class="card-body">
+                            <h5 class="card-title">@film.Title</h5>
+                            <p class="card-text text-muted small">@film.Genre · @film.ReleaseYear · @film.DurationMinutes мин.</p>
+                            <p class="card-text">@TruncateDescription(film.Description)</p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="badge bg-warning text-dark">⭐ @film.Rating.ToString("0.0")</span>
+                                <a href="filmi/@film.Id" class="btn btn-primary btn-sm">Детайли</a>
+                            </div>
+                        </div>
+                        @if (AuthStateService.IsAdmin)
+                        {
+                            <div class="card-footer d-flex gap-2">
+                                <a href="admin/filmi/edit/@film.Id" class="btn btn-outline-secondary btn-sm">Редактирай</a>
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDelete(film)">Изтрий</button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <nav class="mt-4">
+            <ul class="pagination justify-content-center">
+                <li class="page-item @(pagedResult.HasPreviousPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => LoadPage(currentPage - 1)">Предишна</button>
+                </li>
+                @for (int pageIndex = 1; pageIndex <= pagedResult.TotalPages; pageIndex++)
+                {
+                    var pageNum = pageIndex;
+                    <li class="page-item @(pageNum == currentPage ? "active" : "")">
+                        <button class="page-link" @onclick="() => LoadPage(pageNum)">@pageNum</button>
+                    </li>
+                }
+                <li class="page-item @(pagedResult.HasNextPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => LoadPage(currentPage + 1)">Следваща</button>
+                </li>
+            </ul>
+        </nav>
+        <p class="text-center text-muted">Общо @pagedResult.TotalCount филма</p>
+    }
+</div>
+
+@if (filmToDelete is not null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Потвърди изтриване</h5>
+                </div>
+                <div class="modal-body">
+                    Сигурни ли сте, че искате да изтриете „@filmToDelete.Title"?
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CancelDelete">Отказ</button>
+                    <button class="btn btn-danger" @onclick="DeleteFilm">Изтрий</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private PagedResult<FilmResponse>? pagedResult;
+    private bool isLoading = true;
+    private string searchTitle = string.Empty;
+    private int currentPage = 1;
+    private const int PageSize = 9;
+    private FilmResponse? filmToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPage(1);
+    }
+
+    private async Task LoadPage(int pageNumber)
+    {
+        isLoading = true;
+        currentPage = pageNumber;
+
+        pagedResult = string.IsNullOrWhiteSpace(searchTitle)
+            ? await FilmClient.GetAllAsync(currentPage, PageSize)
+            : await FilmClient.SearchAsync(searchTitle, currentPage, PageSize);
+
+        isLoading = false;
+    }
+
+    private async Task SearchFilms() => await LoadPage(1);
+
+    private async Task ClearSearch()
+    {
+        searchTitle = string.Empty;
+        await LoadPage(1);
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+            await SearchFilms();
+    }
+
+    private void ConfirmDelete(FilmResponse film) => filmToDelete = film;
+
+    private void CancelDelete() => filmToDelete = null;
+
+    private async Task DeleteFilm()
+    {
+        if (filmToDelete is null) return;
+        await FilmClient.DeleteAsync(filmToDelete.Id);
+        filmToDelete = null;
+        await LoadPage(currentPage);
+    }
+
+    private static string TruncateDescription(string description)
+    {
+        if (description.Length <= 100) return description;
+        return description[..97] + "...";
+    }
+}

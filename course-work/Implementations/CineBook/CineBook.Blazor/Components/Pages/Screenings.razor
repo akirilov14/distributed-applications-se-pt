@@ -1,0 +1,193 @@
+@page "/prozhekcii"
+@rendermode InteractiveServer
+@inject ScreeningApiClient ScreeningClient
+@inject FilmApiClient FilmClient
+@inject AuthStateService AuthStateService
+
+<PageTitle>Прожекции – CineBook</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Прожекции</h2>
+        @if (AuthStateService.IsAdmin)
+        {
+            <a href="admin/prozhekcii/nova" class="btn btn-success">+ Добави прожекция</a>
+        }
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Филм</label>
+                    <select class="form-select" @bind="filterFilmId">
+                        <option value="">-- Всички филми --</option>
+                        @foreach (var film in films)
+                        {
+                            <option value="@film.Id">@film.Title</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">От дата</label>
+                    <input type="date" class="form-control" @bind="filterStartDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">До дата</label>
+                    <input type="date" class="form-control" @bind="filterEndDate" />
+                </div>
+                <div class="col-md-2 d-flex align-items-end gap-2">
+                    <button class="btn btn-primary flex-fill" @onclick="ApplyFilters">Търси</button>
+                    <button class="btn btn-outline-secondary" @onclick="ClearFilters">X</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (pagedResult is null || pagedResult.TotalCount == 0)
+    {
+        <div class="alert alert-info">Няма намерени резултати.</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Филм</th>
+                        <th>Дата</th>
+                        <th>Час</th>
+                        <th>Зала</th>
+                        <th>Език</th>
+                        <th>3D</th>
+                        <th>Цена от</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var screening in pagedResult.Items)
+                    {
+                        <tr>
+                            <td><a href="filmi/@screening.FilmId">@screening.FilmTitle</a></td>
+                            <td>@screening.StartTime.ToString("dd.MM.yyyy")</td>
+                            <td>@screening.StartTime.ToString("HH:mm")</td>
+                            <td>@screening.AuditoriumName</td>
+                            <td>@screening.Language</td>
+                            <td>@(screening.Is3D ? "✓" : "-")</td>
+                            <td>@screening.BasePrice.ToString("0.00") лв.</td>
+                            <td class="d-flex gap-1">
+                                <a href="prozhekcii/@screening.Id/rezervirane" class="btn btn-success btn-sm">Резервирай</a>
+                                @if (AuthStateService.IsAdmin)
+                                {
+                                    <a href="admin/prozhekcii/edit/@screening.Id" class="btn btn-outline-secondary btn-sm">Редакт.</a>
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDelete(screening)">Изтрий</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <nav class="mt-4">
+            <ul class="pagination justify-content-center">
+                <li class="page-item @(pagedResult.HasPreviousPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => LoadPage(currentPage - 1)">Предишна</button>
+                </li>
+                @for (int pageIndex = 1; pageIndex <= pagedResult.TotalPages; pageIndex++)
+                {
+                    var pageNum = pageIndex;
+                    <li class="page-item @(pageNum == currentPage ? "active" : "")">
+                        <button class="page-link" @onclick="() => LoadPage(pageNum)">@pageNum</button>
+                    </li>
+                }
+                <li class="page-item @(pagedResult.HasNextPage ? "" : "disabled")">
+                    <button class="page-link" @onclick="() => LoadPage(currentPage + 1)">Следваща</button>
+                </li>
+            </ul>
+        </nav>
+        <p class="text-center text-muted">Общо @pagedResult.TotalCount прожекции</p>
+    }
+</div>
+
+@if (screeningToDelete is not null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Потвърди изтриване</h5></div>
+                <div class="modal-body">
+                    Сигурни ли сте, че искате да изтриете прожекцията на „@screeningToDelete.FilmTitle" от @screeningToDelete.StartTime.ToString("dd.MM.yyyy HH:mm")?
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CancelDelete">Отказ</button>
+                    <button class="btn btn-danger" @onclick="DeleteScreening">Изтрий</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private PagedResult<ScreeningResponse>? pagedResult;
+    private List<FilmResponse> films = [];
+    private bool isLoading = true;
+    private int currentPage = 1;
+    private const int PageSize = 15;
+
+    private int? filterFilmId;
+    private DateTime? filterStartDate;
+    private DateTime? filterEndDate;
+    private ScreeningResponse? screeningToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var filmsResult = await FilmClient.GetAllAsync(1, 100);
+        films = filmsResult?.Items.ToList() ?? [];
+        filterStartDate = DateTime.Today;
+        await LoadPage(1);
+    }
+
+    private async Task LoadPage(int pageNumber)
+    {
+        isLoading = true;
+        currentPage = pageNumber;
+
+        pagedResult = await ScreeningClient.SearchAsync(
+            filmId: filterFilmId > 0 ? filterFilmId : null,
+            startDate: filterStartDate,
+            endDate: filterEndDate.HasValue ? filterEndDate.Value.AddDays(1) : null,
+            pageNumber: currentPage,
+            pageSize: PageSize);
+
+        isLoading = false;
+    }
+
+    private async Task ApplyFilters() => await LoadPage(1);
+
+    private async Task ClearFilters()
+    {
+        filterFilmId = null;
+        filterStartDate = DateTime.Today;
+        filterEndDate = null;
+        await LoadPage(1);
+    }
+
+    private void ConfirmDelete(ScreeningResponse screening) => screeningToDelete = screening;
+
+    private void CancelDelete() => screeningToDelete = null;
+
+    private async Task DeleteScreening()
+    {
+        if (screeningToDelete is null) return;
+        await ScreeningClient.DeleteAsync(screeningToDelete.Id);
+        screeningToDelete = null;
+        await LoadPage(currentPage);
+    }
+}

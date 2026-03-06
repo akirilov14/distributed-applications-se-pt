@@ -1,0 +1,152 @@
+@page "/admin/zali/nova"
+@page "/admin/zali/edit/{Id:int}"
+@rendermode InteractiveServer
+@inject AuditoriumApiClient AuditoriumClient
+@inject AuthStateService AuthStateService
+@inject NavigationManager Navigation
+
+<PageTitle>@(isEditing ? "Редактиране" : "Добавяне") на зала – CineBook</PageTitle>
+
+<div class="container mt-4" style="max-width:600px;">
+    @if (!AuthStateService.IsAdmin)
+    {
+        <div class="alert alert-danger">Нямате достъп.</div>
+    }
+    else
+    {
+
+    <h2>@(isEditing ? "Редактиране на зала" : "Добавяне на зала")</h2>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+    }
+    else
+    {
+        <EditForm Model="formModel" OnValidSubmit="SaveAuditorium" FormName="auditoriumForm">
+            <DataAnnotationsValidator />
+
+            <div class="mb-3">
+                <label class="form-label">Наименование <span class="text-danger">*</span></label>
+                <InputText class="form-control" @bind-Value="formModel.Name" />
+                <ValidationMessage For="() => formModel.Name" class="text-danger" />
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Капацитет</label>
+                    <InputNumber class="form-control" @bind-Value="formModel.Capacity" />
+                    <ValidationMessage For="() => formModel.Capacity" class="text-danger" />
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Етаж</label>
+                    <InputNumber class="form-control" @bind-Value="formModel.FloorNumber" />
+                    <ValidationMessage For="() => formModel.FloorNumber" class="text-danger" />
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <div class="form-check form-switch mb-2">
+                    <InputCheckbox class="form-check-input" @bind-Value="formModel.Has3DProjector" id="has3d" />
+                    <label class="form-check-label" for="has3d">3D проектор</label>
+                </div>
+                <div class="form-check form-switch">
+                    <InputCheckbox class="form-check-input" @bind-Value="formModel.HasDolbySound" id="hasDolby" />
+                    <label class="form-check-label" for="hasDolby">Dolby звук</label>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Описание</label>
+                <InputTextArea class="form-control" @bind-Value="formModel.Description" rows="3" />
+                <ValidationMessage For="() => formModel.Description" class="text-danger" />
+            </div>
+
+            @if (isEditing)
+            {
+                <div class="mb-3 form-check">
+                    <InputCheckbox class="form-check-input" @bind-Value="updateIsActive" id="isActive" />
+                    <label class="form-check-label" for="isActive">Активна</label>
+                </div>
+            }
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                    @if (isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    Запази
+                </button>
+                <a href="zali" class="btn btn-outline-secondary">Отказ</a>
+            </div>
+        </EditForm>
+    }
+    } @* end else IsAdmin *@
+</div>
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    private CreateAuditoriumRequest formModel = new();
+    private bool updateIsActive = true;
+    private bool isEditing => Id.HasValue;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AuthStateService.IsAdmin) { isLoading = false; return; }
+
+        if (isEditing)
+        {
+            var auditorium = await AuditoriumClient.GetByIdAsync(Id!.Value);
+            if (auditorium is not null)
+            {
+                formModel.Name = auditorium.Name;
+                formModel.Capacity = auditorium.Capacity;
+                formModel.Has3DProjector = auditorium.Has3DProjector;
+                formModel.HasDolbySound = auditorium.HasDolbySound;
+                formModel.FloorNumber = auditorium.FloorNumber;
+                formModel.Description = auditorium.Description;
+                updateIsActive = auditorium.IsActive;
+            }
+        }
+
+        isLoading = false;
+    }
+
+    private async Task SaveAuditorium()
+    {
+        isSaving = true;
+        errorMessage = null;
+
+        if (isEditing)
+        {
+            var request = new UpdateAuditoriumRequest
+            {
+                Name = formModel.Name,
+                Capacity = formModel.Capacity,
+                Has3DProjector = formModel.Has3DProjector,
+                HasDolbySound = formModel.HasDolbySound,
+                FloorNumber = formModel.FloorNumber,
+                Description = formModel.Description,
+                IsActive = updateIsActive
+            };
+            var result = await AuditoriumClient.UpdateAsync(Id!.Value, request);
+            if (result is null) errorMessage = "Грешка при запазване.";
+            else Navigation.NavigateTo("zali");
+        }
+        else
+        {
+            var result = await AuditoriumClient.CreateAsync(formModel);
+            if (result is null) errorMessage = "Грешка при запазване.";
+            else Navigation.NavigateTo("zali");
+        }
+
+        isSaving = false;
+    }
+}
